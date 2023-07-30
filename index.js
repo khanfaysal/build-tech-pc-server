@@ -47,13 +47,6 @@ const run = async () => {
       res.send(result);
     });
 
-    app.delete('/product/:id', async (req, res) => {
-      const id = req.params.id;
-
-      const result = await productCollection.deleteOne({ _id: ObjectId(id) });
-   
-      res.send(result);
-    });
 
     app.listen(port, () => {
       console.log(`Server is running on port ${port}`);
