@@ -24,6 +24,8 @@ const run = async () => {
     const db = client.db('build-tech-pc');
     const productCollection = db.collection('build-pc');
 
+  
+
     app.get('/products', async (req, res) => {
       const cursor = productCollection.find({});
       const products = await cursor.toArray();
@@ -47,11 +49,6 @@ const run = async () => {
       res.send(result);
     });
 
-
-    app.listen(port, () => {
-      console.log(`Server is running on port ${port}`);
-    });
-
     console.log('Connected to MongoDB successfully');
   } catch (err) {
     console.error('Error connecting to MongoDB:', err);
@@ -59,3 +56,11 @@ const run = async () => {
 };
 
 run().catch((err) => console.error('Error in run:', err));
+
+app.get('/', (req, res) => {
+  res.send('Hello, World'); // Respond with "Hello, World"
+});
+
+app.listen(port, () => {
+  console.log(`Server is running on port ${port}`);
+});
