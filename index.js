@@ -9,7 +9,7 @@ const cors = require('cors');
 app.use(cors());
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fx1bid0.mongodb.net/?retryWrites=true&w=majority`;
+const uri = process.env.DB_URI;
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -74,6 +74,26 @@ app.get('/product/:id', async (req, res) => {
     const id = req.params.id;
     const result = await productCollection.findOne({ _id: new ObjectId(id) });
     res.send(result);
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.delete('/product/:id', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+  try {
+    const id = req.params.id;
+    const result = await productCollection.deleteOne({
+      _id: new ObjectId(id)
+    });
+    
+    res.json({
+      status: true,
+      message: 'Product deleted successfully',
+      data: result
+    });
   } catch (error) {
     res.status(500).json({ status: false, message: error.message });
   }
