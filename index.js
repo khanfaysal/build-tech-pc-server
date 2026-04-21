@@ -9,55 +9,78 @@ const cors = require('cors');
 app.use(cors());
 app.use(express.json());
 
-const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.brk1j.mongodb.net/?retryWrites=true&w=majority`;
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.fx1bid0.mongodb.net/?retryWrites=true&w=majority`;
 
 const client = new MongoClient(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-  serverApi: ServerApiVersion.v1,
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  },
 });
+
+let db;
+let productCollection;
 
 const run = async () => {
   try {
-    await client.connect(); // Connect to MongoDB
-
-    const db = client.db('build-tech-pc');
-    const productCollection = db.collection('build-pc');
-
-  
-
-    app.get('/products', async (req, res) => {
-      const cursor = productCollection.find({});
-      const products = await cursor.toArray();
-
-      res.send({ status: true, data: products });
-    });
-
-    app.post('/product', async (req, res) => {
-      const product = req.body;
-
-      const result = await productCollection.insertOne(product);
-
-      res.send(result);
-    });
-
-    app.get('/product/:id', async (req, res) => {
-      const id = req.params.id;
-
-      const result = await productCollection.findOne({ _id: ObjectId(id) });
-   
-      res.send(result);
-    });
-
-    console.log('Connected to MongoDB successfully');
-  } finally {
+    console.log("Attempting to connect to MongoDB...");
+    await client.connect();
+    db = client.db('build-tech-pc');
+    productCollection = db.collection('build-pc');
+    console.log('✅ Connected to MongoDB successfully');
+  } catch (err) {
+    console.error('❌ Failed to connect to MongoDB:');
+    console.error('   Error Message:', err.message);
+    if (err.message.includes('Authentication failed')) {
+      console.error('   ADVICE: Your DB_USER or DB_PASS in .env does not match what is set in MongoDB Atlas (Database Access).');
+    }
   }
 };
 
-run().catch((err) => console.error('Error in run:', err));
+run();
+
+app.get('/products', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+  try {
+    const cursor = productCollection.find({});
+    const products = await cursor.toArray();
+    res.send({ status: true, data: products });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.post('/product', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+  try {
+    const product = req.body;
+    const result = await productCollection.insertOne(product);
+    res.send(result);
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.get('/product/:id', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+  try {
+    const id = req.params.id;
+    const result = await productCollection.findOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
 
 app.get('/', (req, res) => {
-  res.send('Hello, World'); // Respond with "Hello, World"
+  res.send('Hello, World'); 
 });
 
 app.listen(port, () => {
