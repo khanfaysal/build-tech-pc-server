@@ -88,10 +88,46 @@ app.delete('/product/:id', async (req, res) => {
     const result = await productCollection.deleteOne({
       _id: new ObjectId(id)
     });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        status: false,
+        message: 'Product not found',
+      });
+    }
     
     res.json({
       status: true,
       message: 'Product deleted successfully',
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.patch('/product/:id', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+  try {
+    const id = req.params.id;
+    const updatedData = req.body;
+    const result = await productCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        status: false,
+        message: 'Product not found',
+      });
+    }
+
+    res.json({
+      status: true,
+      message: 'Product updated successfully',
       data: result
     });
   } catch (error) {
