@@ -11,6 +11,7 @@
       "16GB 3200MHz DDR4 RAM+ 128GB M.2 PCIe SSD"
     ],
     "price": 128200,
+    "quantity": 20,
     "rating": 3,
     "spec": [
       {
@@ -51,6 +52,7 @@
       "GIGABYTE GT 730 2GB DDR3 PCI EXPRESS Graphics Card"
     ],
     "price": 41800,
+    "quantity": 20,
     "rating": 4,
     "spec": [
       {
@@ -88,6 +90,7 @@
       "ZOTAC GAMING GTX 1660 SUPER 6GB Twin Fan Graphics Card"
     ],
     "price": 84400,
+    "quantity": 20,
     "rating": 5,
     "spec": [
       {
@@ -125,6 +128,7 @@
       "ASUS GeForce GT 1030 2GB GDDR5 Low Profile Graphics Card"
     ],
     "price": 56700,
+    "quantity": 20,
     "rating": 3,
     "spec": [
       {
@@ -156,6 +160,7 @@
     "image": "https://live.staticflickr.com/65535/52522308736_8453894269_o.jpg",
     "status": true,
     "rating": 5,
+    "quantity": 20,
     "keyFeature": [
       "ASRock B560M Steel Legend 10th and 11th Gen Micro ATX Motherboard",
       "Intel 10th Gen Core i7-10700 Processor",
@@ -199,6 +204,7 @@
       "ZOTAC GAMING GTX 1660 SUPER 6GB Graphics Card"
     ],
     "price": 86200,
+    "quantity": 20,
     "rating": 2,
     "spec": [
       {
@@ -236,6 +242,7 @@
       "Asus Phoenix GeForce GTX 1050Ti 4GB GDDR5 Graphics Card"
     ],
     "price": 84000,
+    "quantity": 20,
     "rating": 5,
     "spec": [
       {
@@ -276,6 +283,7 @@
       "Colorful GeForce RTX 4090 NB EX-V 24GB GDDR6X Graphics Card"
     ],
     "price": 399999,
+    "quantity": 20,
     "rating": 3,
     "spec": [
       {
@@ -301,6 +309,27 @@
       },
       {
         "cooler": "Antec Prizm X 120 ARGB 3+C Cooling Fan"
+      }
+    ]
+  },
+  {
+    "_id": 9,
+    "model": "Antec NX410 Mid Tower ARGB Gaming Case",
+    "image": "https://www.startech.com.bd/image/cache/catalog/casing/antec/nx410/nx410-white-01-500x500.jpg",
+    "category": "Casing",
+    "status": true,
+    "price": 4500,
+    "quantity": 15,
+    "rating": 4,
+    "spec": [
+      {
+        "type": "Mid Tower"
+      },
+      {
+        "color": "White"
+      },
+      {
+        "fan": "2 x 140mm ARGB fans in front & 1 x 120mm ARGB fan in rear"
       }
     ]
   }
