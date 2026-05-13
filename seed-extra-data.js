@@ -54,7 +54,7 @@ async function run() {
         }
       ];
 
-      const averageRating = 4.5;
+      const description = `This high-performance ${product.category} is designed to provide exceptional stability and speed for your next PC build. Featuring the latest technology and reliable components.`;
 
       await productCollection.updateOne(
         { _id: product._id },
@@ -62,7 +62,8 @@ async function run() {
           $set: { 
             keyFeatures, 
             reviews, 
-            averageRating 
+            averageRating,
+            description
           } 
         }
       );

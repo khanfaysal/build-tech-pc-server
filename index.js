@@ -433,6 +433,42 @@ app.delete('/order/:id', verifyToken, authorize(['masteradmin', 'admin']), async
   }
 });
 
+app.get('/admin/stats', async (req, res) => {
+  const productsCollection = productCollection;
+  const usersCollection = app.locals.usersCollection;
+  const ordersCollection = app.locals.ordersCollection;
+
+  try {
+    const totalProducts = await productsCollection.countDocuments();
+    const totalUsers = await usersCollection.countDocuments();
+    const totalOrders = await ordersCollection.countDocuments();
+    
+    // Calculate total revenue from paid orders
+    const orders = await ordersCollection.find({ status: 'paid' }).toArray();
+    const totalRevenue = orders.reduce((sum, order) => sum + (order.totalPrice || 0), 0);
+
+    // Get recent activity (last 5 products)
+    const recentProducts = await productsCollection.find({}).sort({ _id: -1 }).limit(5).toArray();
+
+    res.json({
+      status: true,
+      data: {
+        totalProducts,
+        totalUsers,
+        totalOrders,
+        totalRevenue,
+        recentActivity: recentProducts.map(p => ({
+          type: 'product',
+          name: p.productName || p.model,
+          time: 'Recently'
+        }))
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
 app.get('/orders', async (req, res) => {
   const ordersCollection = app.locals.ordersCollection;
   try {
