@@ -7,9 +7,34 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 const cors = require('cors');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 app.use(cors());
 app.use(express.json());
+// Serve static files from the uploads directory
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Ensure uploads directory exists
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
+// Multer storage configuration
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const upload = multer({ storage: storage });
+
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const uri = process.env.DB_URI;
@@ -478,6 +503,15 @@ app.get('/orders', async (req, res) => {
   } catch (error) {
     res.status(500).json({ status: false, message: error.message });
   }
+});
+
+// --- UPLOAD ROUTE ---
+app.post('/upload', upload.single('image'), (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ status: false, message: 'No file uploaded' });
+  }
+  const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+  res.json({ status: true, imageUrl });
 });
 
 app.get('/', (req, res) => {

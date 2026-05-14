@@ -55,6 +55,8 @@ async function run() {
       ];
 
       const description = `This high-performance ${product.category} is designed to provide exceptional stability and speed for your next PC build. Featuring the latest technology and reliable components.`;
+      
+      const averageRating = product.averageRating || (Math.random() * 2 + 3).toFixed(1); // Default to a random 3-5 rating if missing
 
       await productCollection.updateOne(
         { _id: product._id },
@@ -62,7 +64,7 @@ async function run() {
           $set: { 
             keyFeatures, 
             reviews, 
-            averageRating,
+            averageRating: parseFloat(averageRating),
             description
           } 
         }
