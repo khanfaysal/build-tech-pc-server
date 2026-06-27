@@ -35,6 +35,16 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
+const getImageExtension = (url, contentType = '') => {
+  const pathname = new URL(url).pathname;
+  const ext = path.extname(pathname).toLowerCase();
+  if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) return ext;
+  if (contentType.includes('png')) return '.png';
+  if (contentType.includes('webp')) return '.webp';
+  if (contentType.includes('gif')) return '.gif';
+  return '.jpg';
+};
+
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const uri = process.env.DB_URI;
@@ -50,6 +60,24 @@ const client = new MongoClient(uri, {
 let db;
 let productCollection;
 
+const getIdQuery = (id) => ({
+  $or: [
+    { _id: ObjectId.isValid(id) ? new ObjectId(id) : null },
+    { _id: id },
+  ].filter((query) => query._id !== null),
+});
+
+const createSlug = (title = '') => {
+  const base = title
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return base || `post-${Date.now()}`;
+};
+
 const run = async () => {
   try {
     console.log("Attempting to connect to MongoDB...");
@@ -59,9 +87,13 @@ const run = async () => {
     const buildsCollection = db.collection('builds');
     const ordersCollection = db.collection('orders');
     const usersCollection = db.collection('users');
+    const blogsCollection = db.collection('blogs');
+    const salesCollection = db.collection('sales');
     app.locals.buildsCollection = buildsCollection;
     app.locals.ordersCollection = ordersCollection;
     app.locals.usersCollection = usersCollection;
+    app.locals.blogsCollection = blogsCollection;
+    app.locals.salesCollection = salesCollection;
     console.log('✅ Connected to MongoDB successfully');
   } catch (err) {
     console.error('❌ Failed to connect to MongoDB:');
@@ -439,6 +471,267 @@ app.patch('/admin/user-role/:id', verifyToken, authorize(['masteradmin']), async
   }
 });
 
+// --- BLOG ROUTES ---
+
+app.get('/blogs', async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 100);
+    const blogs = await blogsCollection
+      .find({ status: { $ne: 'draft' } })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .toArray();
+
+    res.json({ status: true, data: blogs });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.get('/blogs/:slug', async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const slug = req.params.slug;
+    const blog = await blogsCollection.findOne({
+      $or: [
+        { slug },
+        { _id: ObjectId.isValid(slug) ? new ObjectId(slug) : null },
+      ].filter((query) => query.slug || query._id !== null),
+    });
+
+    if (!blog) {
+      return res.status(404).json({ status: false, message: 'Blog not found' });
+    }
+
+    res.json({ status: true, data: blog });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.get('/admin/blogs', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const blogs = await blogsCollection.find({}).sort({ updatedAt: -1 }).toArray();
+    res.json({ status: true, data: blogs });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.post('/admin/blogs', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const blog = req.body;
+    const now = new Date();
+    const slug = blog.slug || createSlug(blog.title);
+    const existing = await blogsCollection.findOne({ slug });
+
+    if (existing) {
+      return res.status(409).json({ status: false, message: 'A blog with this slug already exists' });
+    }
+
+    const result = await blogsCollection.insertOne({
+      title: blog.title,
+      slug,
+      excerpt: blog.excerpt || '',
+      content: blog.content || '',
+      coverImage: blog.coverImage || '',
+      author: blog.author || req.user.email,
+      category: blog.category || 'PC Guide',
+      status: blog.status || 'published',
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    res.status(201).json({ status: true, data: result });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.patch('/admin/blogs/:id', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const update = { ...req.body, updatedAt: new Date() };
+    if (update.title && !update.slug) {
+      update.slug = createSlug(update.title);
+    }
+
+    const result = await blogsCollection.updateOne(getIdQuery(req.params.id), { $set: update });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ status: false, message: 'Blog not found' });
+    }
+
+    res.json({ status: true, data: result });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.delete('/admin/blogs/:id', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const blogsCollection = app.locals.blogsCollection;
+  if (!blogsCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const result = await blogsCollection.deleteOne(getIdQuery(req.params.id));
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ status: false, message: 'Blog not found' });
+    }
+
+    res.json({ status: true, message: 'Blog deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+// --- SALES / AFFILIATE ROUTES ---
+
+app.get('/sales', async (req, res) => {
+  const salesCollection = app.locals.salesCollection;
+  if (!salesCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const query = { active: { $ne: false } };
+    if (req.query.category) query.category = req.query.category;
+
+    const sales = await salesCollection.find(query).sort({ createdAt: -1 }).toArray();
+    res.json({ status: true, data: sales });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.get('/admin/sales', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const salesCollection = app.locals.salesCollection;
+  if (!salesCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const sales = await salesCollection.find({}).sort({ updatedAt: -1 }).toArray();
+    res.json({ status: true, data: sales });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.post('/admin/sales', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const salesCollection = app.locals.salesCollection;
+  if (!salesCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const sale = req.body;
+    const now = new Date();
+    const result = await salesCollection.insertOne({
+      title: sale.title,
+      marketplace: sale.marketplace || 'Amazon',
+      category: sale.category || 'Component',
+      price: Number(sale.price) || 0,
+      originalPrice: Number(sale.originalPrice) || 0,
+      couponCode: sale.couponCode || '',
+      affiliateUrl: sale.affiliateUrl || '',
+      image: sale.image || '',
+      badge: sale.badge || '',
+      active: sale.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    res.status(201).json({ status: true, data: result });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.patch('/admin/sales/:id', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const salesCollection = app.locals.salesCollection;
+  if (!salesCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const update = { ...req.body, updatedAt: new Date() };
+    if (update.price !== undefined) update.price = Number(update.price) || 0;
+    if (update.originalPrice !== undefined) update.originalPrice = Number(update.originalPrice) || 0;
+
+    const result = await salesCollection.updateOne(getIdQuery(req.params.id), { $set: update });
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ status: false, message: 'Sale item not found' });
+    }
+
+    res.json({ status: true, data: result });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.delete('/admin/sales/:id', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
+  const salesCollection = app.locals.salesCollection;
+  if (!salesCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const result = await salesCollection.deleteOne(getIdQuery(req.params.id));
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ status: false, message: 'Sale item not found' });
+    }
+
+    res.json({ status: true, message: 'Sale item deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
+app.get('/compare-products', async (req, res) => {
+  if (!productCollection) {
+    return res.status(503).json({ status: false, message: 'Database unavailable' });
+  }
+
+  try {
+    const ids = (req.query.ids || '').split(',').filter(Boolean);
+    if (!ids.length) {
+      return res.json({ status: true, data: [] });
+    }
+
+    const products = await productCollection.find({
+      $or: ids.flatMap((id) => getIdQuery(id).$or),
+    }).toArray();
+
+    res.json({ status: true, data: products });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
+});
+
 app.delete('/order/:id', verifyToken, authorize(['masteradmin', 'admin']), async (req, res) => {
   const ordersCollection = app.locals.ordersCollection;
   if (!ordersCollection) {
@@ -512,6 +805,46 @@ app.post('/upload', upload.single('image'), (req, res) => {
   }
   const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
   res.json({ status: true, imageUrl });
+});
+
+app.post('/upload-url', async (req, res) => {
+  try {
+    const { imageUrl } = req.body;
+    if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) {
+      return res.status(400).json({ status: false, message: 'Valid image URL is required' });
+    }
+
+    const response = await fetch(imageUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 BuildTechPC image importer',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(400).json({ status: false, message: `Image download failed: ${response.status}` });
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.startsWith('image/')) {
+      return res.status(400).json({ status: false, message: 'URL did not return an image file' });
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const extension = getImageExtension(imageUrl, contentType);
+    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extension}`;
+    const filePath = path.join(uploadDir, filename);
+
+    fs.writeFileSync(filePath, buffer);
+
+    res.json({
+      status: true,
+      imageUrl: `${req.protocol}://${req.get('host')}/uploads/${filename}`,
+    });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message });
+  }
 });
 
 app.get('/', (req, res) => {
