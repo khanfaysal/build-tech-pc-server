@@ -49,6 +49,50 @@ const client = new MongoClient(uri, {
 let db;
 let productCollection;
 
+// On Vercel (serverless) the connection must be established lazily and awaited
+// per-request. Connecting once at boot is unreliable: handlers can run before the
+// async connect resolves, and a cold start that fails only logs the error, so the
+// process is stuck returning 503 forever. We cache a single connect promise (across
+// warm invocations via globalThis) and await it before touching any collection.
+let connectPromise = globalThis.__mongoConnectPromise || null;
+
+const connectDB = async () => {
+  if (db && productCollection) return;
+
+  if (!connectPromise) {
+    connectPromise = (async () => {
+      await client.connect();
+      db = client.db('build-tech-pc');
+      productCollection = db.collection('build-pc');
+      app.locals.buildsCollection = db.collection('builds');
+      app.locals.ordersCollection = db.collection('orders');
+      app.locals.usersCollection = db.collection('users');
+      app.locals.blogsCollection = db.collection('blogs');
+      app.locals.salesCollection = db.collection('sales');
+      console.log('✅ Connected to MongoDB successfully');
+    })().catch((err) => {
+      // Reset so the next request retries instead of caching a failed connection
+      connectPromise = null;
+      globalThis.__mongoConnectPromise = null;
+      throw err;
+    });
+    globalThis.__mongoConnectPromise = connectPromise;
+  }
+
+  await connectPromise;
+};
+
+// Ensure the database is connected before any route handler runs.
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('❌ Failed to connect to MongoDB:', err.message);
+    res.status(503).json({ status: false, message: 'Database connecting or unavailable' });
+  }
+});
+
 const getIdQuery = (id) => ({
   $or: [
     { _id: ObjectId.isValid(id) ? new ObjectId(id) : null },
@@ -67,33 +111,14 @@ const createSlug = (title = '') => {
   return base || `post-${Date.now()}`;
 };
 
-const run = async () => {
-  try {
-    console.log("Attempting to connect to MongoDB...");
-    await client.connect();
-    db = client.db('build-tech-pc');
-    productCollection = db.collection('build-pc');
-    const buildsCollection = db.collection('builds');
-    const ordersCollection = db.collection('orders');
-    const usersCollection = db.collection('users');
-    const blogsCollection = db.collection('blogs');
-    const salesCollection = db.collection('sales');
-    app.locals.buildsCollection = buildsCollection;
-    app.locals.ordersCollection = ordersCollection;
-    app.locals.usersCollection = usersCollection;
-    app.locals.blogsCollection = blogsCollection;
-    app.locals.salesCollection = salesCollection;
-    console.log('✅ Connected to MongoDB successfully');
-  } catch (err) {
-    console.error('❌ Failed to connect to MongoDB:');
-    console.error('   Error Message:', err.message);
-    if (err.message.includes('Authentication failed')) {
-      console.error('   ADVICE: Your DB_USER or DB_PASS in .env does not match what is set in MongoDB Atlas (Database Access).');
-    }
+// Warm the connection at boot for the local/long-running server (best-effort;
+// the per-request middleware guarantees connection on Vercel serverless).
+connectDB().catch((err) => {
+  console.error('❌ Initial MongoDB connection failed:', err.message);
+  if (err.message.includes('Authentication failed')) {
+    console.error('   ADVICE: Your DB_USER or DB_PASS does not match MongoDB Atlas (Database Access).');
   }
-};
-
-run();
+});
 
 app.get('/products', async (req, res) => {
   if (!productCollection) {
