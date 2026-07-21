@@ -8,42 +8,31 @@ const port = process.env.PORT || 5000;
 
 const cors = require('cors');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
 
 app.use(cors());
 app.use(express.json());
-// Serve static files from the uploads directory
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Ensure uploads directory exists
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir);
-}
-
-// Multer storage configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  },
+// Cloudinary configuration (persistent image hosting — required on Vercel,
+// whose filesystem is ephemeral/read-only so local disk uploads do not survive)
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const upload = multer({ storage: storage });
+// Upload a file buffer to Cloudinary and resolve with the secure URL
+const uploadBufferToCloudinary = (buffer) =>
+  new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      { folder: 'build-tech-pc/products' },
+      (error, result) => (error ? reject(error) : resolve(result))
+    );
+    stream.end(buffer);
+  });
 
-const getImageExtension = (url, contentType = '') => {
-  const pathname = new URL(url).pathname;
-  const ext = path.extname(pathname).toLowerCase();
-  if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) return ext;
-  if (contentType.includes('png')) return '.png';
-  if (contentType.includes('webp')) return '.webp';
-  if (contentType.includes('gif')) return '.gif';
-  return '.jpg';
-};
+// Multer in-memory storage (files are streamed to Cloudinary, never written to disk)
+const upload = multer({ storage: multer.memoryStorage() });
 
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
@@ -799,12 +788,16 @@ app.get('/orders', async (req, res) => {
 });
 
 // --- UPLOAD ROUTE ---
-app.post('/upload', upload.single('image'), (req, res) => {
+app.post('/upload', upload.single('image'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ status: false, message: 'No file uploaded' });
   }
-  const imageUrl = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
-  res.json({ status: true, imageUrl });
+  try {
+    const result = await uploadBufferToCloudinary(req.file.buffer);
+    res.json({ status: true, imageUrl: result.secure_url });
+  } catch (error) {
+    res.status(500).json({ status: false, message: error.message || 'Image upload failed' });
+  }
 });
 
 app.post('/upload-url', async (req, res) => {
@@ -814,34 +807,12 @@ app.post('/upload-url', async (req, res) => {
       return res.status(400).json({ status: false, message: 'Valid image URL is required' });
     }
 
-    const response = await fetch(imageUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 BuildTechPC image importer',
-        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
-      },
+    // Cloudinary fetches and stores the remote image directly
+    const result = await cloudinary.uploader.upload(imageUrl, {
+      folder: 'build-tech-pc/products',
     });
 
-    if (!response.ok) {
-      return res.status(400).json({ status: false, message: `Image download failed: ${response.status}` });
-    }
-
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.startsWith('image/')) {
-      return res.status(400).json({ status: false, message: 'URL did not return an image file' });
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    const extension = getImageExtension(imageUrl, contentType);
-    const filename = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extension}`;
-    const filePath = path.join(uploadDir, filename);
-
-    fs.writeFileSync(filePath, buffer);
-
-    res.json({
-      status: true,
-      imageUrl: `${req.protocol}://${req.get('host')}/uploads/${filename}`,
-    });
+    res.json({ status: true, imageUrl: result.secure_url });
   } catch (error) {
     res.status(500).json({ status: false, message: error.message });
   }
